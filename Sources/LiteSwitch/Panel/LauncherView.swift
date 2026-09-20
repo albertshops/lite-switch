@@ -14,12 +14,24 @@ final class LauncherViewModel: ObservableObject {
             case action(WindowAction)
         }
 
+        enum Section: String, CaseIterable {
+            case applications = "Applications"
+            case actions = "Window Actions"
+        }
+
         let id: String
         let title: String
         let subtitle: String?
         let symbol: String?
         let kind: Kind
         let assignmentTarget: AssignmentTarget?
+        let indentLevel: Int
+
+        var section: Section {
+            if case .action = kind { return .actions }
+            return .applications
+        }
+
     }
 
     @Published var query = "" { didSet { updateResults() } }
@@ -29,6 +41,9 @@ final class LauncherViewModel: ObservableObject {
     @Published private(set) var isLoading = true
     @Published private(set) var errorMessage: String?
     @Published private(set) var assignmentItemID: String?
+    @Published private(set) var expandedBundleIdentifiers: Set<String> = []
+    @Published private(set) var expandedWindowIdentities: Set<WindowIdentity> = []
+    @Published private(set) var faviconDataByTabID: [String: Data] = [:]
 
     var didCompleteAction: (() -> Void)?
 
@@ -43,6 +58,7 @@ final class LauncherViewModel: ObservableObject {
     private let assignmentsDidChange: () -> Void
     private var book: AssignmentBook
     private var subscriptions = Set<AnyCancellable>()
+    private var switchingRefreshID = UUID()
 
     init(
         applicationIndex: ApplicationIndex,
@@ -77,21 +93,97 @@ final class LauncherViewModel: ObservableObject {
         query = ""
         errorMessage = nil
         assignmentItemID = nil
+        expandedBundleIdentifiers.removeAll()
+        expandedWindowIdentities.removeAll()
         book = assignmentStore.load()
+        updateResults()
         refreshSwitchingTargets()
         presentationID = UUID()
     }
 
     func refreshSwitchingTargets() {
-        programs = windowService.programs()
-        tabs = programs.contains { $0.identity.bundleIdentifier == WindowService.vivaldiBundleIdentifier }
-            ? windowService.vivaldiTabs()
-            : []
-        updateResults()
+        let refreshID = UUID()
+        switchingRefreshID = refreshID
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let programs = WindowService().programs()
+            DispatchQueue.main.async {
+                guard let self, self.switchingRefreshID == refreshID else { return }
+                self.programs = programs
+                self.updateResults()
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let tabs = WindowService().vivaldiTabs()
+            DispatchQueue.main.async {
+                guard let self, self.switchingRefreshID == refreshID else { return }
+                self.tabs = tabs
+                self.faviconDataByTabID = [:]
+                self.updateResults()
+            }
+
+            let favicons = VivaldiFaviconStore().faviconData(for: tabs)
+            DispatchQueue.main.async {
+                guard let self, self.switchingRefreshID == refreshID else { return }
+                self.faviconDataByTabID = favicons
+            }
+        }
     }
 
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
+
+    func hasChildren(_ item: Item) -> Bool {
+        switch item.kind {
+        case let .program(program):
+            program.windows.count > 1 || (
+                program.identity.bundleIdentifier == WindowService.vivaldiBundleIdentifier
+                    && program.windows.count == 1
+                    && !tabs.isEmpty
+            )
+        case let .window(window):
+            tabs(belongingTo: window, in: program(for: window)?.windows ?? []).count > 1
+        case .application, .vivaldiTab, .action:
+            false
+        }
+    }
+
+    func isExpanded(_ item: Item) -> Bool {
+        switch item.kind {
+        case let .program(program):
+            expandedBundleIdentifiers.contains(program.identity.bundleIdentifier)
+        case let .window(window):
+            expandedWindowIdentities.contains(window.identity)
+        case .application, .vivaldiTab, .action:
+            false
+        }
+    }
+
+    func toggleChildren(of item: Item) {
+        guard hasChildren(item) else { return }
+        switch item.kind {
+        case let .program(program):
+            let identifier = program.identity.bundleIdentifier
+            if expandedBundleIdentifiers.remove(identifier) == nil {
+                expandedBundleIdentifiers.insert(identifier)
+                if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   identifier == WindowService.vivaldiBundleIdentifier {
+                    expandedWindowIdentities.formUnion(program.windows.map(\.identity))
+                }
+            } else {
+                expandedWindowIdentities.subtract(program.windows.map(\.identity))
+            }
+        case let .window(window):
+            if expandedWindowIdentities.remove(window.identity) == nil {
+                expandedWindowIdentities.insert(window.identity)
+            }
+        case .application, .vivaldiTab, .action:
+            return
+        }
+        selectedID = item.id
+        updateResults()
+    }
 
     func activateSelected() {
         guard let selectedID, let item = results.first(where: { $0.id == selectedID }) else { return }
@@ -186,10 +278,14 @@ final class LauncherViewModel: ObservableObject {
         case let .application(application): application.icon
         case let .program(program): program.application.icon
         case let .window(window): window.application.icon
-        case .vivaldiTab:
-            NSWorkspace.shared.runningApplications.first {
-                $0.bundleIdentifier == WindowService.vivaldiBundleIdentifier
-            }?.icon
+        case let .vivaldiTab(tab):
+            if let data = faviconDataByTabID[tab.id], let favicon = NSImage(data: data) {
+                favicon
+            } else {
+                NSWorkspace.shared.runningApplications.first {
+                    $0.bundleIdentifier == WindowService.vivaldiBundleIdentifier
+                }?.icon
+            }
         case .action: nil
         }
     }
@@ -202,32 +298,131 @@ final class LauncherViewModel: ObservableObject {
 
     private func updateResults() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var items: [Item] = []
+        let matchesQuery: (Item) -> Bool = { [self] item in
+            trimmed.isEmpty || matches(trimmed, text: item.title + " " + (item.subtitle ?? ""))
+        }
+        let matchesNestedItem: (Item) -> Bool = { [self] item in
+            guard !trimmed.isEmpty else { return true }
+            switch item.kind {
+            case let .window(window):
+                return matches(trimmed, text: window.title)
+            case let .vivaldiTab(tab):
+                return matches(trimmed, text: tab.title + " " + tab.url)
+            case .application, .program, .action:
+                return matchesQuery(item)
+            }
+        }
+        var applicationItems: [Item] = []
+        var representedBundleIdentifiers = Set<String>()
 
         for program in programs {
-            items.append(programItem(program))
-            items.append(contentsOf: program.windows.map(windowItem))
-        }
-        items.append(contentsOf: tabs.map(tabItem))
-        items.append(contentsOf: WindowAction.allCases.map(actionItem))
+            let parent = programItem(program)
+            let parentMatches = matchesQuery(parent)
+            var visibleDescendants: [Item] = []
 
-        if !trimmed.isEmpty {
-            items = items.filter { matches(trimmed, text: $0.title + " " + ($0.subtitle ?? "")) }
+            let flattensSingleVivaldiWindow =
+                program.identity.bundleIdentifier == WindowService.vivaldiBundleIdentifier
+                && program.windows.count == 1
+
+            if flattensSingleVivaldiWindow, let window = program.windows.first {
+                let tabRows = tabs(belongingTo: window, at: 0, in: program.windows).map {
+                    tabItem($0, indentLevel: 1)
+                }
+                if trimmed.isEmpty {
+                    if expandedBundleIdentifiers.contains(program.identity.bundleIdentifier) {
+                        visibleDescendants.append(contentsOf: tabRows)
+                    }
+                } else if expandedBundleIdentifiers.contains(program.identity.bundleIdentifier) {
+                    visibleDescendants.append(contentsOf: tabRows)
+                } else {
+                    visibleDescendants.append(contentsOf: tabRows.filter(matchesNestedItem))
+                }
+            } else {
+                for (index, window) in program.windows.enumerated() {
+                    if !trimmed.isEmpty, program.windows.count == 1, parentMatches {
+                        continue
+                    }
+                    let windowRow = windowItem(window)
+                    let windowTabs = program.identity.bundleIdentifier == WindowService.vivaldiBundleIdentifier
+                        ? tabs(belongingTo: window, at: index, in: program.windows)
+                        : []
+                    let matchingTabs = windowTabs.map { tabItem($0) }.filter(matchesNestedItem)
+                    let windowMatches = matchesNestedItem(windowRow)
+
+                    if trimmed.isEmpty {
+                        if expandedBundleIdentifiers.contains(program.identity.bundleIdentifier) {
+                            visibleDescendants.append(windowRow)
+                            if expandedWindowIdentities.contains(window.identity) {
+                                visibleDescendants.append(contentsOf: windowTabs.map { tabItem($0) })
+                            }
+                        }
+                    } else if expandedBundleIdentifiers.contains(program.identity.bundleIdentifier) {
+                        visibleDescendants.append(windowRow)
+                        if expandedWindowIdentities.contains(window.identity) {
+                            visibleDescendants.append(contentsOf: windowTabs.map { tabItem($0) })
+                        }
+                    } else if windowMatches || !matchingTabs.isEmpty {
+                        visibleDescendants.append(windowRow)
+                        visibleDescendants.append(contentsOf: expandedWindowIdentities.contains(window.identity)
+                            ? windowTabs.map { tabItem($0) }
+                            : matchingTabs)
+                    }
+                }
+            }
+
+            if parentMatches || !visibleDescendants.isEmpty {
+                applicationItems.append(parent)
+                applicationItems.append(contentsOf: visibleDescendants)
+            }
+            representedBundleIdentifiers.insert(program.identity.bundleIdentifier)
         }
 
         let rankedApplications = ApplicationSearch.results(
             for: trimmed,
             in: applications,
             usageHistory: usageHistory.records
-        )
+        ).filter { application in
+            guard let bundleIdentifier = application.bundleIdentifier else { return true }
+            return !representedBundleIdentifiers.contains(bundleIdentifier)
+        }
         let applicationLimit = trimmed.isEmpty ? 8 : 20
-        items.append(contentsOf: rankedApplications.prefix(applicationLimit).map(applicationItem))
+        applicationItems.append(contentsOf: rankedApplications.prefix(applicationLimit).map(applicationItem))
 
-        results = Array(items.prefix(40))
+        let actionItems = WindowAction.allCases.map(actionItem).filter(matchesQuery)
+        results = applicationItems + actionItems
         if !results.contains(where: { $0.id == selectedID }) {
             selectedID = results.first?.id
         }
         errorMessage = nil
+    }
+
+    private func program(for window: ManagedWindow) -> ManagedProgram? {
+        programs.first { program in
+            program.windows.contains { $0.identity == window.identity }
+        }
+    }
+
+    private func tabs(belongingTo window: ManagedWindow, in windows: [ManagedWindow]) -> [ManagedVivaldiTab] {
+        guard window.identity.bundleIdentifier == WindowService.vivaldiBundleIdentifier,
+              let index = windows.firstIndex(where: { $0.identity == window.identity })
+        else { return [] }
+        return tabs(belongingTo: window, at: index, in: windows)
+    }
+
+    private func tabs(
+        belongingTo window: ManagedWindow,
+        at index: Int,
+        in windows: [ManagedWindow]
+    ) -> [ManagedVivaldiTab] {
+        let windowsWithTitle = windows.filter { $0.title == window.title }
+        let tabWindowIDsWithTitle = Set(tabs.compactMap { tab -> String? in
+            guard tab.windowTitle == window.title else { return nil }
+            return tab.windowID
+        })
+        if windowsWithTitle.count == 1, tabWindowIDsWithTitle.count == 1 {
+            return tabs.filter { $0.windowTitle == window.title }
+        }
+        return tabs.filter { $0.windowIndex == index + 1 }
     }
 
     private func applicationItem(_ application: InstalledApplication) -> Item {
@@ -236,7 +431,8 @@ final class LauncherViewModel: ObservableObject {
         }
         return Item(
             id: "app:\(application.url.path)", title: application.name,
-            subtitle: "Application", symbol: nil, kind: .application(application), assignmentTarget: target
+            subtitle: "Application", symbol: nil, kind: .application(application), assignmentTarget: target,
+            indentLevel: 0
         )
     }
 
@@ -244,7 +440,7 @@ final class LauncherViewModel: ObservableObject {
         Item(
             id: "program:\(program.identity.bundleIdentifier)", title: program.identity.name,
             subtitle: "Running application · cycle windows", symbol: nil,
-            kind: .program(program), assignmentTarget: .program(program.identity)
+            kind: .program(program), assignmentTarget: .program(program.identity), indentLevel: 0
         )
     }
 
@@ -253,14 +449,15 @@ final class LauncherViewModel: ObservableObject {
             id: "window:\(window.identity.bundleIdentifier):\(window.identity.windowNumber ?? window.title.hashValue)",
             title: window.title,
             subtitle: "Window · \(window.application.localizedName ?? "Application")" + (window.isMinimized ? " · Minimized" : ""),
-            symbol: nil, kind: .window(window), assignmentTarget: .window(window.identity)
+            symbol: nil, kind: .window(window), assignmentTarget: .window(window.identity), indentLevel: 1
         )
     }
 
-    private func tabItem(_ tab: ManagedVivaldiTab) -> Item {
+    private func tabItem(_ tab: ManagedVivaldiTab, indentLevel: Int = 2) -> Item {
         Item(
             id: "tab:\(tab.id)", title: tab.title.isEmpty ? tab.url : tab.title,
-            subtitle: "Vivaldi tab", symbol: nil, kind: .vivaldiTab(tab), assignmentTarget: .vivaldiTab(tab.identity)
+            subtitle: "Vivaldi tab", symbol: nil, kind: .vivaldiTab(tab),
+            assignmentTarget: .vivaldiTab(tab.identity), indentLevel: indentLevel
         )
     }
 
@@ -268,7 +465,7 @@ final class LauncherViewModel: ObservableObject {
         Item(
             id: "action:\(action.rawValue)", title: action.title,
             subtitle: "Window action", symbol: action.symbolName,
-            kind: .action(action), assignmentTarget: .action(action)
+            kind: .action(action), assignmentTarget: .action(action), indentLevel: 0
         )
     }
 
@@ -318,8 +515,8 @@ final class LauncherViewModel: ObservableObject {
 
 struct LauncherView: View {
     @ObservedObject var model: LauncherViewModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchIsFocused: Bool
+    @State private var hoveredShortcutItemID: String?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -343,16 +540,13 @@ struct LauncherView: View {
             } else if model.results.isEmpty {
                 ContentUnavailableView.search(text: model.query)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(model.results) { item in resultRow(item).id(item.id) }
-                        }
-                    }
-                    .onChange(of: model.selectedID) {
-                        if let selectedID = model.selectedID {
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
-                                proxy.scrollTo(selectedID, anchor: .center)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(LauncherViewModel.Item.Section.allCases, id: \.self) { section in
+                            let items = model.results.filter { $0.section == section }
+                            if !items.isEmpty {
+                                sectionHeader(section.rawValue)
+                                ForEach(items) { item in resultRow(item).id(item.id) }
                             }
                         }
                     }
@@ -379,35 +573,72 @@ struct LauncherView: View {
         .onExitCommand { NSApp.keyWindow?.cancelOperation(nil) }
     }
 
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.top, 8)
+            .padding(.bottom, 3)
+    }
+
     private func resultRow(_ item: LauncherViewModel.Item) -> some View {
         let selected = model.selectedID == item.id
         let shortcut = model.shortcut(for: item)
         let assigning = model.assignmentItemID == item.id
         return HStack(spacing: 11) {
+            if item.indentLevel > 0 {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 12)
+            }
             if let icon = model.icon(for: item) {
                 Image(nsImage: icon).resizable().scaledToFit().frame(width: 32, height: 32)
             } else {
                 Image(systemName: item.symbol ?? "bolt").frame(width: 32, height: 32).foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.title).lineLimit(1)
-                if let subtitle = item.subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-            }
+            Text(item.title)
+                .lineLimit(1)
             Spacer()
+            if model.hasChildren(item) {
+                Button { model.toggleChildren(of: item) } label: {
+                    Image(systemName: model.isExpanded(item) ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 36, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(model.isExpanded(item) ? "Hide windows and tabs" : "Show windows and tabs")
+            }
             if item.assignmentTarget != nil {
                 Button {
                     if shortcut != nil && !assigning { model.removeAssignment(from: item) }
                     else { model.beginAssigning(item) }
                 } label: {
-                    Text(assigning ? "…" : shortcut.map { "⌥\($0.displayValue)" } ?? "+ key")
-                        .font(.system(.caption, design: .rounded).weight(.semibold)).frame(minWidth: 36)
+                    Text(assigning ? "…" : shortcut.map { "⌥\($0.displayValue)" } ?? "-")
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(shortcut == nil && !assigning ? Color.secondary.opacity(0.4) : Color.primary)
+                        .frame(minWidth: 36)
                         .padding(.horizontal, 6).padding(.vertical, 4)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                        .background(
+                            hoveredShortcutItemID == item.id ? Color.primary.opacity(0.08) : .clear,
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
                 }
                 .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering {
+                        hoveredShortcutItemID = item.id
+                    } else if hoveredShortcutItemID == item.id {
+                        hoveredShortcutItemID = nil
+                    }
+                }
                 .help(shortcut == nil ? "Assign an Option-key shortcut" : "Remove this shortcut")
             }
         }
+        .padding(.leading, CGFloat(item.indentLevel) * 18)
         .padding(.horizontal, 9).frame(height: 48).contentShape(Rectangle())
         .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 8))
         .onTapGesture { model.selectedID = item.id; model.activate(item) }

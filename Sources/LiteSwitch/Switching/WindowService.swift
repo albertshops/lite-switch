@@ -48,7 +48,6 @@ struct ManagedVivaldiTab {
     }
 }
 
-@MainActor
 final class WindowService {
     static let vivaldiBundleIdentifier = "com.vivaldi.Vivaldi"
 
@@ -271,28 +270,29 @@ final class WindowService {
     private func windows(for application: NSRunningApplication) -> [ManagedWindow] {
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
         guard let elements: [AXUIElement] = attribute(kAXWindowsAttribute, from: appElement) else { return [] }
+        return elements.compactMap { managedWindow(for: $0, application: application) }
+    }
 
-        return elements.compactMap { element in
-            let role: String? = attribute(kAXRoleAttribute, from: element)
-            let subrole: String? = attribute(kAXSubroleAttribute, from: element)
-            guard role == kAXWindowRole,
-                  subrole == nil || subrole == kAXStandardWindowSubrole
-            else { return nil }
+    private func managedWindow(for element: AXUIElement, application: NSRunningApplication) -> ManagedWindow? {
+        let role: String? = attribute(kAXRoleAttribute, from: element)
+        let subrole: String? = attribute(kAXSubroleAttribute, from: element)
+        guard role == kAXWindowRole,
+              subrole == nil || subrole == kAXStandardWindowSubrole
+        else { return nil }
 
-            let rawTitle: String = attribute(kAXTitleAttribute, from: element) ?? ""
-            let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Window" : rawTitle
-            let documentURL: String? = attribute(kAXDocumentAttribute, from: element)
-            let windowNumber = windowNumber(for: element)
-            let minimized: Bool = attribute(kAXMinimizedAttribute, from: element) ?? false
-            return ManagedWindow(
-                element: element,
-                application: application,
-                title: title,
-                documentURL: documentURL,
-                windowNumber: windowNumber,
-                isMinimized: minimized
-            )
-        }
+        let rawTitle: String = attribute(kAXTitleAttribute, from: element) ?? ""
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Window" : rawTitle
+        let documentURL: String? = attribute(kAXDocumentAttribute, from: element)
+        let windowNumber = windowNumber(for: element)
+        let minimized: Bool = attribute(kAXMinimizedAttribute, from: element) ?? false
+        return ManagedWindow(
+            element: element,
+            application: application,
+            title: title,
+            documentURL: documentURL,
+            windowNumber: windowNumber,
+            isMinimized: minimized
+        )
     }
 
     func currentActiveWindow() -> ManagedWindow? {
@@ -301,7 +301,7 @@ final class WindowService {
         else { return nil }
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
         guard let focused: AXUIElement = attribute(kAXFocusedWindowAttribute, from: appElement) else { return nil }
-        return windows(for: application).first { CFEqual($0.element, focused) }
+        return managedWindow(for: focused, application: application)
     }
 
     private func activeWindow() -> AXUIElement? {

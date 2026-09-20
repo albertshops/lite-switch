@@ -36,7 +36,10 @@ destination.write_text(contents)
 PY
 
 chmod +x "$EXECUTABLE_PATH"
-codesign --force --deep --sign - "$TEMP_APP_PATH"
+# Use an identifier-based designated requirement so Accessibility permission survives local rebuilds.
+codesign --force --deep --sign - \
+    --requirements '=designated => identifier "com.albertshops.liteswitch"' \
+    "$TEMP_APP_PATH"
 codesign --verify --deep --strict "$TEMP_APP_PATH"
 
 if pgrep -x LiteSwitch >/dev/null 2>&1; then

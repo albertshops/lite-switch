@@ -71,9 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !defaults.bool(forKey: "hasCompletedFirstLaunch") {
             defaults.set(true, forKey: "hasCompletedFirstLaunch")
             panelController.show()
-            if !windowService.isAccessibilityGranted() {
-                _ = windowService.requestAccessibilityPermission()
-            }
+        }
+        if !windowService.isAccessibilityGranted() {
+            _ = windowService.requestAccessibilityPermission()
         }
     }
 
