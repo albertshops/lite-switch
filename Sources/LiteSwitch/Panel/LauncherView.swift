@@ -553,14 +553,6 @@ struct LauncherView: View {
                 }
             }
 
-            HStack {
-                Text(model.assignmentItemID == nil
-                     ? "↩ Open  ·  Click the key badge to assign an ⌥ shortcut"
-                     : "Press a letter, number, or arrow key · Esc to cancel")
-                Spacer()
-                Text("⌥Space")
-            }
-            .font(.caption).foregroundStyle(.secondary)
         }
         .padding(14).frame(width: 680, height: 560, alignment: .top)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
