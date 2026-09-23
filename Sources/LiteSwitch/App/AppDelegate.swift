@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] in self?.settingsController?.show() },
             openAccessibility: { [weak self] in self?.windowService.openAccessibilitySettings() },
             clearAssignments: { [weak self] in self?.clearAssignments() },
+            restart: { [weak self] in self?.restart() },
             quit: { NSApp.terminate(nil) }
         )
         registerAssignmentHotKeys()
@@ -115,6 +116,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func clearAssignments() {
         assignmentStore.save(AssignmentBook())
         registerAssignmentHotKeys()
+    }
+
+    private func restart() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open \"$2\"",
+            "lite-switch-restart",
+            String(ProcessInfo.processInfo.processIdentifier),
+            Bundle.main.bundleURL.path,
+        ]
+
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            NSSound.beep()
+        }
     }
 
     @objc private func openLauncherFromAnotherInstance(_ notification: Notification) {

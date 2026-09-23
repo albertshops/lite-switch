@@ -6,6 +6,7 @@ final class StatusItemController: NSObject {
     private let openSettings: () -> Void
     private let openAccessibility: () -> Void
     private let clearAssignments: () -> Void
+    private let restart: () -> Void
     private let quit: () -> Void
 
     init(
@@ -13,12 +14,14 @@ final class StatusItemController: NSObject {
         openSettings: @escaping () -> Void,
         openAccessibility: @escaping () -> Void,
         clearAssignments: @escaping () -> Void,
+        restart: @escaping () -> Void,
         quit: @escaping () -> Void
     ) {
         self.openLauncher = openLauncher
         self.openSettings = openSettings
         self.openAccessibility = openAccessibility
         self.clearAssignments = clearAssignments
+        self.restart = restart
         self.quit = quit
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
@@ -32,6 +35,7 @@ final class StatusItemController: NSObject {
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAccessibilitySelected), keyEquivalent: "")
         menu.addItem(withTitle: "Clear Assigned Shortcuts", action: #selector(clearAssignmentsSelected), keyEquivalent: "")
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Restart Lite Switch", action: #selector(restartSelected), keyEquivalent: "")
         menu.addItem(withTitle: "Quit Lite Switch", action: #selector(quitSelected), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
         statusItem.menu = menu
@@ -41,5 +45,6 @@ final class StatusItemController: NSObject {
     @objc private func openSettingsSelected() { openSettings() }
     @objc private func openAccessibilitySelected() { openAccessibility() }
     @objc private func clearAssignmentsSelected() { clearAssignments() }
+    @objc private func restartSelected() { restart() }
     @objc private func quitSelected() { quit() }
 }
