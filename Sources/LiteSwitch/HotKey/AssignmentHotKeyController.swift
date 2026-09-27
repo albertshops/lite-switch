@@ -19,9 +19,16 @@ private nonisolated(unsafe) let assignmentHotKeyHandler: EventHandlerUPP = { _, 
 @MainActor
 final class AssignmentHotKeyController {
     private static let signature: OSType = 0x4C53_4153 // LSAS
-    private var references: [EventHotKeyRef] = []
+    private struct Registration {
+        let key: ShortcutKey
+        let id: UInt32
+        let reference: EventHotKeyRef
+    }
+
+    private var registrations: [UInt32: Registration] = [:]
     private var eventHandler: EventHandlerRef?
-    private var actions: [UInt32: () -> Void] = [:]
+    private var activate: ((ShortcutKey) -> Void)?
+    private var nextIdentifier = UInt32(100)
 
     init() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -32,33 +39,46 @@ final class AssignmentHotKeyController {
     }
 
     deinit {
-        references.forEach { _ = UnregisterEventHotKey($0) }
+        registrations.values.forEach { _ = UnregisterEventHotKey($0.reference) }
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
 
     func register(keys: [ShortcutKey], activate: @escaping (ShortcutKey) -> Void) {
-        references.forEach { _ = UnregisterEventHotKey($0) }
-        references.removeAll()
-        actions.removeAll()
+        self.activate = activate
 
-        var id = UInt32(100)
-        for key in keys {
-            for keyCode in Self.keyCodes[key, default: []] {
-                var reference: EventHotKeyRef?
-                let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
-                let status = RegisterEventHotKey(
-                    keyCode, UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &reference
-                )
-                if status == noErr, let reference {
-                    references.append(reference)
-                    actions[id] = { activate(key) }
-                }
-                id += 1
+        let desired = Dictionary(uniqueKeysWithValues: keys.flatMap { key in
+            Self.keyCodes[key, default: []].map { ($0, key) }
+        })
+
+        // Keep registrations whose physical key has not changed. Re-registering
+        // every hot key after one assignment changes creates a brief gap where
+        // Option-key presses reach the frontmost app as symbols. It can also
+        // lose otherwise healthy registrations if Carbon reports a transient
+        // failure while they are being recreated.
+        for (keyCode, registration) in registrations
+        where desired[keyCode] != registration.key {
+            _ = UnregisterEventHotKey(registration.reference)
+            registrations.removeValue(forKey: keyCode)
+        }
+
+        for (keyCode, key) in desired where registrations[keyCode] == nil {
+            let id = nextIdentifier
+            nextIdentifier &+= 1
+            var reference: EventHotKeyRef?
+            let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
+            let status = RegisterEventHotKey(
+                keyCode, UInt32(optionKey), hotKeyID, GetApplicationEventTarget(), 0, &reference
+            )
+            if status == noErr, let reference {
+                registrations[keyCode] = Registration(key: key, id: id, reference: reference)
             }
         }
     }
 
-    fileprivate func handle(id: UInt32) { actions[id]?() }
+    fileprivate func handle(id: UInt32) {
+        guard let key = registrations.values.first(where: { $0.id == id })?.key else { return }
+        activate?(key)
+    }
 
     private static let keyCodes: [ShortcutKey: [UInt32]] = [
         ShortcutKey("a")!: [UInt32(kVK_ANSI_A)], ShortcutKey("b")!: [UInt32(kVK_ANSI_B)],
