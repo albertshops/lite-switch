@@ -19,6 +19,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("CoreAudio"),
                 .linkedFramework("ServiceManagement"),
                 .linkedLibrary("sqlite3"),
             ]

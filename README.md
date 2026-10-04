@@ -1,6 +1,6 @@
 # Lite Switch
 
-Lite Switch combines Pinpoint’s application launcher with Twitcher’s app, window, Vivaldi-tab, and window-management shortcuts in one native macOS menu-bar app.
+Lite Switch combines Pinpoint’s application launcher with Twitcher’s app, window, Vivaldi-tab, window-management, and sound-output switching tools in one native macOS menu-bar app.
 
 Press **⌥ Space** to open one searchable panel containing:
 
@@ -21,7 +21,7 @@ The packaged app is written to `dist/Lite Switch.app`. Lite Switch targets macOS
 
 Grant Lite Switch access in **System Settings → Privacy & Security → Accessibility** to search, focus, and manage windows. Vivaldi tab support also requires allowing Lite Switch to automate Vivaldi when macOS asks.
 
-Use **Settings…** from the menu-bar item to change the launcher shortcut or enable Launch at Login.
+Open the menu-bar item to see available sound outputs, identify the active output by its checkmark, or switch devices. Use **Settings…** to change the launcher shortcut or enable Launch at Login.
 
 ## Checks
 

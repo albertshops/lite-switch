@@ -1,7 +1,9 @@
 import AppKit
 
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
+    private let menu = NSMenu()
+    private let audioOutputs = AudioOutputService()
     private let openLauncher: () -> Void
     private let openSettings: () -> Void
     private let openAccessibility: () -> Void
@@ -28,17 +30,64 @@ final class StatusItemController: NSObject {
 
         statusItem.button?.image = NSImage(systemSymbolName: "rectangle.2.swap", accessibilityDescription: "Lite Switch")
         statusItem.button?.toolTip = "Lite Switch"
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Open Lite Switch", action: #selector(openLauncherSelected), keyEquivalent: "")
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettingsSelected), keyEquivalent: ",")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAccessibilitySelected), keyEquivalent: "")
-        menu.addItem(withTitle: "Clear Assigned Shortcuts", action: #selector(clearAssignmentsSelected), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Restart Lite Switch", action: #selector(restartSelected), keyEquivalent: "")
-        menu.addItem(withTitle: "Quit Lite Switch", action: #selector(quitSelected), keyEquivalent: "q")
-        menu.items.forEach { $0.target = self }
+        menu.delegate = self
         statusItem.menu = menu
+        rebuildMenu()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenu()
+    }
+
+    private func rebuildMenu() {
+        menu.removeAllItems()
+
+        addItem(title: "Open Lite Switch", action: #selector(openLauncherSelected))
+        menu.addItem(.separator())
+
+        let heading = NSMenuItem(title: "Sound Output", action: nil, keyEquivalent: "")
+        heading.isEnabled = false
+        menu.addItem(heading)
+
+        let devices = audioOutputs.availableDevices()
+        if devices.isEmpty {
+            let unavailable = NSMenuItem(title: "No sound outputs found", action: nil, keyEquivalent: "")
+            unavailable.isEnabled = false
+            unavailable.indentationLevel = 1
+            menu.addItem(unavailable)
+        } else {
+            for device in devices {
+                let item = addItem(title: device.name, action: #selector(selectAudioOutput(_:)))
+                item.indentationLevel = 1
+                item.representedObject = NSNumber(value: device.id)
+                item.state = device.isDefault ? .on : .off
+            }
+        }
+
+        menu.addItem(.separator())
+        addItem(title: "Settings…", action: #selector(openSettingsSelected), keyEquivalent: ",")
+        addItem(title: "Open Accessibility Settings…", action: #selector(openAccessibilitySelected))
+        addItem(title: "Clear Assigned Shortcuts", action: #selector(clearAssignmentsSelected))
+        menu.addItem(.separator())
+        addItem(title: "Restart Lite Switch", action: #selector(restartSelected))
+        addItem(title: "Quit Lite Switch", action: #selector(quitSelected), keyEquivalent: "q")
+    }
+
+    @discardableResult
+    private func addItem(title: String, action: Selector, keyEquivalent: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        menu.addItem(item)
+        return item
+    }
+
+    @objc private func selectAudioOutput(_ sender: NSMenuItem) {
+        guard let deviceID = (sender.representedObject as? NSNumber)?.uint32Value,
+              audioOutputs.selectDevice(id: deviceID) else {
+            NSSound.beep()
+            return
+        }
+        rebuildMenu()
     }
 
     @objc private func openLauncherSelected() { openLauncher() }
