@@ -1,6 +1,8 @@
 # Lite Switch
 
-Lite Switch combines Pinpoint’s application launcher with Twitcher’s app, window, Vivaldi-tab, window-management, and sound-output switching tools in one native macOS menu-bar app.
+Lite Switch is a native macOS menu-bar app for launching apps, switching windows and Vivaldi tabs, managing windows, and selecting sound outputs.
+
+## Usage
 
 Press **⌥ Space** to open one searchable panel containing:
 
