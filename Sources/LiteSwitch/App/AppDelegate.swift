@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windowService = WindowService()
     private let assignmentStore = AssignmentStore()
     private let assignmentHotKeys = AssignmentHotKeyController()
+    private let launchFeedback = LaunchFeedbackController()
     private var launcherHotKey: GlobalHotKeyController?
     private var applicationIndex: ApplicationIndex?
     private var usageHistory: UsageHistoryStore?
@@ -93,7 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch target {
         case let .program(identity):
             guard let program = windowService.matchingProgram(for: identity) else {
-                if book.shouldLaunchIfNeeded(identity), windowService.launch(identity) { return }
+                if book.shouldLaunchIfNeeded(identity), windowService.launch(identity) {
+                    launchFeedback.show(appName: identity.name)
+                    return
+                }
                 NSSound.beep(); return
             }
             if !windowService.cycleWindows(in: program, excluding: book.windowIdentities(for: identity)) {

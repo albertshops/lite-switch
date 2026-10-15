@@ -34,7 +34,14 @@ final class LauncherViewModel: ObservableObject {
 
     }
 
-    @Published var query = "" { didSet { updateResults() } }
+    @Published var query = "" {
+        didSet {
+            updateResults()
+            if query != oldValue {
+                selectedID = results.first?.id
+            }
+        }
+    }
     @Published private(set) var results: [Item] = []
     @Published var selectedID: String?
     @Published var presentationID = UUID()
@@ -273,6 +280,19 @@ final class LauncherViewModel: ObservableObject {
         item.assignmentTarget.flatMap(book.key(for:))
     }
 
+    func launchesIfNeeded(_ item: Item) -> Bool {
+        guard case let .program(program) = item.assignmentTarget else { return false }
+        return book.shouldLaunchIfNeeded(program)
+    }
+
+    func setLaunchIfNeeded(_ enabled: Bool, for item: Item) {
+        guard case let .program(program) = item.assignmentTarget else { return }
+        book.setLaunchIfNeeded(enabled, for: program)
+        assignmentStore.save(book)
+        assignmentsDidChange()
+        updateResults()
+    }
+
     func icon(for item: Item) -> NSImage? {
         switch item.kind {
         case let .application(application): application.icon
@@ -307,7 +327,8 @@ final class LauncherViewModel: ObservableObject {
             case let .window(window):
                 return matches(trimmed, text: window.title)
             case let .vivaldiTab(tab):
-                return matches(trimmed, text: tab.title + " " + tab.url)
+                return matches(trimmed, text: tab.title)
+                    || tab.url.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
             case .application, .program, .action:
                 return matchesQuery(item)
             }
@@ -603,6 +624,17 @@ struct LauncherView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help(model.isExpanded(item) ? "Hide windows and tabs" : "Show windows and tabs")
+            }
+            if shortcut != nil, case .program = item.assignmentTarget {
+                Toggle("Launch if not running", isOn: Binding(
+                    get: { model.launchesIfNeeded(item) },
+                    set: { model.setLaunchIfNeeded($0, for: item) }
+                ))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .controlSize(.small)
+                .help("Launch if not running when this shortcut is pressed")
+                .accessibilityLabel("Launch \(item.title) if not running")
             }
             if item.assignmentTarget != nil {
                 Button {
