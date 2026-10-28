@@ -1,0 +1,35 @@
+name: i3 checks
+
+on:
+  push:
+    paths:
+      - "apps/i3/**"
+      - ".github/workflows/i3.yml"
+  pull_request:
+    paths:
+      - "apps/i3/**"
+      - ".github/workflows/i3.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/i3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop build and smoke-test dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-4-dev xvfb xdotool xterm xfonts-base dbus-x11
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+      - run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - run: cargo test --locked --no-default-features
+      - run: python3 tests/desktop_smoke.py

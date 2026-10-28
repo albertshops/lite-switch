@@ -1,0 +1,27 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "lite-switch-i3"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "An i3-only Linux implementation of Lite Switch"
+
+[features]
+default = ["gui"]
+gui = ["dep:gtk", "dep:gdk4-x11", "dep:gio"]
+
+[dependencies]
+gio = { version = "0.21", features = ["v2_80"], optional = true }
+gtk = { package = "gtk4", version = "0.10", optional = true }
+gdk4-x11 = { version = "0.10", optional = true }
+unicode-normalization = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "lite-switch"
+path = "src/main.rs"

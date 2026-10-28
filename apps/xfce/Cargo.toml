@@ -1,0 +1,28 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "lite-switch-xfce"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "An Xfce/X11 implementation of Lite Switch"
+
+[features]
+default = ["gui"]
+gui = ["dep:gtk", "dep:gdk4-x11", "dep:gio"]
+
+[dependencies]
+gio = { version = "0.21", features = ["v2_80"], optional = true }
+gtk = { package = "gtk4", version = "0.10", optional = true }
+gdk4-x11 = { version = "0.10", optional = true }
+unicode-normalization = "0.1"
+x11rb = { version = "0.13", features = ["randr", "xkb"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "lite-switch-xfce"
+path = "src/main.rs"

@@ -1,8 +1,25 @@
 # Lite Switch
 
-Lite Switch is a native macOS menu-bar app for launching apps, switching windows and Vivaldi tabs, managing windows, and selecting sound outputs.
+Lite Switch launches apps, switches windows and Vivaldi tabs, manages windows, and selects sound outputs.
 
-## Usage
+This monorepo contains independent native implementations:
+
+| Platform | Location | Status |
+| --- | --- | --- |
+| macOS 14+ | `Package.swift`, `Sources/`, `scripts/` | Existing menu-bar application |
+| Xfce/X11 | [`apps/xfce/`](apps/xfce/README.md) | Active Rust/GTK4 launcher with X11 discovery/focus, search, cycling and assignments |
+| i3/X11 | [`apps/i3/`](apps/i3/README.md) | Preserved legacy GTK4 implementation; superseded as the active target |
+
+The macOS files remain in their original locations. Each app owns its dependencies,
+tests, and packaging. Shared [behaviour](docs/behaviour.md) and
+[acceptance scenarios](docs/test-cases/acceptance.md) describe the intended parity;
+runtime code is not shared. The Vivaldi extension will live under
+`extensions/vivaldi/` when implemented.
+
+For Linux build instructions and implementation order, see
+[`apps/xfce/README.md`](apps/xfce/README.md). The instructions below apply to macOS.
+
+## macOS usage
 
 Press **⌥ Space** to open one searchable panel containing:
 
@@ -33,7 +50,7 @@ swift run LiteSwitchCoreChecks
 
 ## Privacy
 
-Lite Switch makes no network requests and includes no telemetry or third-party dependencies. Application usage history and shortcut assignments remain in local user defaults.
+Lite Switch makes no runtime network requests and includes no telemetry. The macOS application uses only Apple frameworks; Linux builds have their own Rust/native dependencies. Application usage history and shortcut assignments remain local.
 
 ## License
 

@@ -4,3 +4,6 @@ dist/
 DerivedData/
 *.xcresult
 .swiftpm/
+/apps/i3/target/
+/apps/xfce/target/
+**/__pycache__/

@@ -1,0 +1,31 @@
+{
+  "id": 1, "type": "root", "nodes": [
+    {
+      "id": 2, "type": "output", "name": "DP-1", "nodes": [
+        {"id": 50, "type": "dockarea", "nodes": [
+          {"id": 51, "type": "con", "window": 104, "name": "i3bar", "window_properties": {"class": "i3bar"}}
+        ]},
+        {"id": 3, "type": "con", "nodes": [
+          {"id": 4, "type": "workspace", "name": "2: code", "nodes": [
+            {"id": 10, "type": "con", "nodes": [
+              {"id": 11, "type": "con", "window": 101, "name": "Editor — project", "focused": true,
+               "window_properties": {"class": "Code", "instance": "code"}}
+            ]}
+          ], "floating_nodes": [
+            {"id": 20, "type": "floating_con", "nodes": [
+              {"id": 12, "type": "con", "window": 102, "name": null, "urgent": true,
+               "window_properties": {"class": "Vivaldi-stable", "title": "Fallback title", "window_role": "browser"}}
+            ]}
+          ]}
+        ]}
+      ]
+    },
+    {"id": 30, "type": "output", "name": "__i3", "nodes": [
+      {"id": 31, "type": "workspace", "name": "__i3_scratch", "floating_nodes": [
+        {"id": 32, "type": "floating_con", "nodes": [
+          {"id": 33, "type": "con", "window": 103, "name": "Notes"}
+        ]}
+      ]}
+    ]}
+  ]
+}
